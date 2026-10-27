@@ -1,0 +1,48 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: equipamentos-backend-staging
+    restart: unless-stopped
+    environment:
+      - APP_NAME=${APP_NAME:-Sistema de Gestão e Empréstimo de Equipamentos}
+      - APP_ENV=staging
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: equipamentos-frontend-staging
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    expose:
+      - "5173"
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: equipamentos-caddy-staging
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-staging.exemplo.com}
+      - ACME_EMAIL=${ACME_EMAIL:-devops@exemplo.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
+
