@@ -68,3 +68,4 @@ jobs:
 
       - name: Docker Compose Build
         run: docker compose build
+
