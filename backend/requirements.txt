@@ -5,3 +5,15 @@ structlog==25.1.0
 httpx==0.28.1
 pytest==8.3.5
 
+# ORM, banco de dados e migrações
+SQLAlchemy==2.1.8
+alembic==1.20.1
+psycopg[binary]==3.3.8
+
+# Autenticação (JWT), hash de senha (Argon2id) e validação de e-mail
+PyJWT==2.15.1
+pwdlib[argon2]==0.3.1
+email-validator==2.3.0
+
+# Rate limiting
+slowapi==0.1.10
