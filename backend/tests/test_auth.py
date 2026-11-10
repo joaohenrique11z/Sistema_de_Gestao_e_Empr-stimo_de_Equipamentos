@@ -134,3 +134,81 @@ def test_decode_token_rejeita_tipo_trocado(usuario: Usuario) -> None:
     except TokenError as exc:
         assert "tipo" in str(exc).lower()
 
+
+def test_auth_anti_enumeracao_e_conta_inativa(
+    client: TestClient, db_session: Session, usuario: Usuario
+) -> None:
+    from app.services.auth_service import CREDENCIAIS_INVALIDAS
+
+    # 1. Usuário inexistente
+    res_inexistente = client.post(
+        "/auth/login", json={"email": "fantasma@ifpe.edu.br", "senha": "qualquer_senha"}
+    )
+    assert res_inexistente.status_code == 401
+    assert res_inexistente.json()["detail"] == CREDENCIAIS_INVALIDAS
+
+    # 2. Desativa o usuário e tenta login com senha correta
+    usuario.ativo = False
+    db_session.commit()
+
+    res_inativo = client.post(
+        "/auth/login", json={"email": usuario.email, "senha": SENHA_PADRAO}
+    )
+    assert res_inativo.status_code == 401
+    assert res_inativo.json()["detail"] == CREDENCIAIS_INVALIDAS
+
+
+def test_auth_desbloqueio_apos_expirar_bloqueado_ate(
+    client: TestClient, db_session: Session, usuario: Usuario
+) -> None:
+    from datetime import datetime, timezone
+    from app.core.rate_limit import limiter
+
+    limiter.enabled = False
+    # Simula conta bloqueada no passado (bloqueio já expirado)
+    usuario.bloqueado_ate = datetime.now(timezone.utc) - timedelta(minutes=1)
+    usuario.tentativas_falhas = 5
+    db_session.commit()
+
+    # Login com senha certa deve ser permitido e limpar o bloqueio
+    res = client.post("/auth/login", json={"email": usuario.email, "senha": SENHA_PADRAO})
+    assert res.status_code == 200
+
+    db_session.refresh(usuario)
+    assert usuario.bloqueado_ate is None
+    assert usuario.tentativas_falhas == 0
+
+
+def test_auth_logout_sem_corpo_revoga_refresh_tokens(client: TestClient, usuario: Usuario) -> None:
+    # 1. Faz login
+    res_login = client.post("/auth/login", json={"email": usuario.email, "senha": SENHA_PADRAO})
+    assert res_login.status_code == 200
+    dados = res_login.json()
+    access = dados["access_token"]
+    refresh = dados["refresh_token"]
+
+    # 2. Logout sem body (nenhum payload JSON enviado)
+    res_logout = client.post("/auth/logout", headers={"Authorization": f"Bearer {access}"})
+    assert res_logout.status_code == 200
+
+    # 3. Refresh token emitido não deve mais funcionar
+    res_refresh = client.post("/auth/refresh", json={"refresh_token": refresh})
+    assert res_refresh.status_code == 401
+
+
+def test_validacao_segredo_jwt_em_producao() -> None:
+    import pytest
+    from app.config import DEFAULT_JWT_SECRET, Settings
+
+    # Em ambiente de desenvolvimento chave padrão é aceita
+    dev_settings = Settings(APP_ENV="development", JWT_SECRET_KEY=DEFAULT_JWT_SECRET)
+    assert dev_settings.APP_ENV == "development"
+
+    # Em produção ou staging com chave padrão ou curta (<32) deve disparar ValueError
+    with pytest.raises(ValueError, match="JWT_SECRET_KEY deve ser definida"):
+        Settings(APP_ENV="production", JWT_SECRET_KEY=DEFAULT_JWT_SECRET)
+
+    with pytest.raises(ValueError, match="JWT_SECRET_KEY deve ser definida"):
+        Settings(APP_ENV="staging", JWT_SECRET_KEY="chave-curta")
+
+

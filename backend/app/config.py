@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN: str = "5/minute"
     RATE_LIMIT_REFRESH: str = "10/minute"
 
+    # CORS
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+
     # Usuário administrador criado automaticamente na inicialização (opcional)
     FIRST_ADMIN_NOME: str = "Administrador"
     FIRST_ADMIN_EMAIL: str | None = None

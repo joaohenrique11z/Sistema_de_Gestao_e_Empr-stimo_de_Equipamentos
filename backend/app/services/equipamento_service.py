@@ -108,8 +108,12 @@ class EquipamentoService:
     def _sincronizar_acessorios(
         self, equipamento: Equipamento, novos: list[AcessorioIn], usuario_id: int | None
     ) -> bool:
+        ids_enviados_com_repeticao = [a.id for a in novos if a.id is not None]
+        if len(ids_enviados_com_repeticao) != len(set(ids_enviados_com_repeticao)):
+            raise BusinessRuleError("Identificadores de acessórios duplicados na requisição.")
+
         atuais = {a.id: a for a in equipamento.acessorios}
-        ids_enviados = {a.id for a in novos if a.id is not None}
+        ids_enviados = set(ids_enviados_com_repeticao)
 
         desconhecidos = ids_enviados - atuais.keys()
         if desconhecidos:
@@ -165,6 +169,9 @@ class EquipamentoService:
     # Escrita
     # ------------------------------------------------------------------ #
     def criar(self, dados: EquipamentoCreate, usuario: Usuario | None = None) -> Equipamento:
+        if dados.codigo_patrimonio.strip().upper() == dados.codigo_interno.strip().upper():
+            raise BusinessRuleError("O código de patrimônio e o código interno não podem ser iguais.")
+
         self._garantir_codigos_disponiveis(
             {"codigo_patrimonio": dados.codigo_patrimonio, "codigo_interno": dados.codigo_interno}
         )
@@ -202,6 +209,11 @@ class EquipamentoService:
             for campo, valor in enviados.items()
             if getattr(equipamento, campo) != valor
         }
+
+        patrimonio_final = enviados.get("codigo_patrimonio", equipamento.codigo_patrimonio)
+        interno_final = enviados.get("codigo_interno", equipamento.codigo_interno)
+        if patrimonio_final.strip().upper() == interno_final.strip().upper():
+            raise BusinessRuleError("O código de patrimônio e o código interno não podem ser iguais.")
 
         codigos = {
             campo: enviados[campo]

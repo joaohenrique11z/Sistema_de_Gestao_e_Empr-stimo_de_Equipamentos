@@ -31,14 +31,17 @@ class ResponsavelRepository:
         stmt = select(Responsavel)
 
         if termo:
-            like = f"%{termo.strip().lower()}%"
+            termo_clean = termo.strip().lower()
+            termo_escaped = termo_clean.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = f"%{termo_escaped}%"
             condicoes = [
-                func.lower(Responsavel.nome).like(like),
-                func.lower(Responsavel.email).like(like),
-                func.lower(Responsavel.matricula).like(like),
+                func.lower(Responsavel.nome).like(like, escape="\\"),
+                func.lower(Responsavel.email).like(like, escape="\\"),
+                func.lower(Responsavel.matricula).like(like, escape="\\"),
             ]
             digitos = "".join(ch for ch in termo if ch.isdigit())
-            if digitos:
+            # Só busca no CPF se o termo não contiver letras (evita que buscas como 'MAT01' batam em CPFs com '01')
+            if digitos and not any(ch.isalpha() for ch in termo):
                 condicoes.append(Responsavel.cpf.like(f"%{digitos}%"))
             stmt = stmt.where(or_(*condicoes))
         if ativo is not None:

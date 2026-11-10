@@ -91,7 +91,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return self._unauthorized("Token revogado.")
 
         request.state.token_payload = payload
-        request.state.user_id = int(payload["sub"])
+        try:
+            request.state.user_id = int(payload["sub"])
+        except (ValueError, TypeError, KeyError):
+            return self._unauthorized("Token com identificador inválido.")
         structlog.contextvars.bind_contextvars(user_id=request.state.user_id)
 
         return await call_next(request)

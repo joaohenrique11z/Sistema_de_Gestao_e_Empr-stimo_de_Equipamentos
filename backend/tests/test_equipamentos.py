@@ -309,3 +309,155 @@ def test_busca_equipamento_por_codigo_patrimonio_ou_interno(api: TestClient) -> 
     # Código inexistente retorna 404
     assert api.get("/equipamentos/codigo/NAO-EXISTE").status_code == 404
 
+
+# --------------------------------------------------------------------------- #
+# Task 381: Testes Unitários/Integração de Cadastro, Conflitos e Edge Cases
+# --------------------------------------------------------------------------- #
+def test_validacao_codigo_patrimonio_igual_a_codigo_interno(api: TestClient) -> None:
+    # Criação com códigos idênticos deve falhar com 422
+    payload = dados_equipamento(codigo_patrimonio="EQ-MESMO-01", codigo_interno="eq-mesmo-01")
+    res = api.post("/equipamentos", json=payload)
+    assert res.status_code == 422
+    assert "não podem ser iguais" in res.json()["detail"].lower()
+
+    # Criação normal
+    eq = api.post(
+        "/equipamentos",
+        json=dados_equipamento(codigo_patrimonio="PAT-DISTINTO", codigo_interno="INT-DISTINTO"),
+    ).json()
+
+    # Atualização tentando igualar os códigos deve falhar com 422
+    res_up = api.put(f"/equipamentos/{eq['id']}", json={"codigo_interno": "PAT-DISTINTO"})
+    assert res_up.status_code == 422
+
+
+def test_conflito_cruzado_de_codigos_entre_equipamentos(api: TestClient) -> None:
+    api.post(
+        "/equipamentos",
+        json=dados_equipamento(codigo_patrimonio="PAT-CRUZ-01", codigo_interno="INT-CRUZ-01"),
+    )
+
+    # Tentativa de usar o código interno de um como patrimônio de outro
+    res_cruzado = api.post(
+        "/equipamentos",
+        json=dados_equipamento(codigo_patrimonio="INT-CRUZ-01", codigo_interno="INT-CRUZ-02"),
+    )
+    assert res_cruzado.status_code == 409
+    assert res_cruzado.json()["codigo"] == "conflito"
+
+
+def test_tentativa_de_vincular_responsavel_inativo_ou_inexistente(api: TestClient) -> None:
+    # Responsável inexistente
+    res_inexistente = api.post(
+        "/equipamentos",
+        json=dados_equipamento(responsavel_id=999999),
+    )
+    assert res_inexistente.status_code == 422
+    assert "não existe" in res_inexistente.json()["detail"].lower()
+
+    # Responsável inativo
+    resp_inativo = api.post("/responsaveis", json=dados_responsavel(ativo=False)).json()
+    res_inativo = api.post(
+        "/equipamentos",
+        json=dados_equipamento(responsavel_id=resp_inativo["id"]),
+    )
+    assert res_inativo.status_code == 422
+    assert "inativo" in res_inativo.json()["detail"].lower()
+
+
+def test_acessorios_com_ids_duplicados_no_put_retorna_422(api: TestClient) -> None:
+    eq = api.post(
+        "/equipamentos",
+        json=dados_equipamento(
+            acessorios=[{"nome": "Cabo HDMI", "quantidade": 1}],
+        ),
+    ).json()
+    acessorio_id = eq["acessorios"][0]["id"]
+
+    # PUT enviando o mesmo id duas vezes
+    res_duplicado = api.put(
+        f"/equipamentos/{eq['id']}",
+        json={
+            "acessorios": [
+                {"id": acessorio_id, "nome": "Cabo HDMI Novo", "quantidade": 1},
+                {"id": acessorio_id, "nome": "Cabo HDMI Duplicado", "quantidade": 2},
+            ]
+        },
+    )
+    assert res_duplicado.status_code == 422
+    assert "duplicados" in res_duplicado.json()["detail"].lower()
+
+
+def test_erros_404_equipamento_inexistente(api: TestClient) -> None:
+    assert api.get("/equipamentos/999999").status_code == 404
+    assert api.put("/equipamentos/999999", json={"nome": "Novo Nome"}).status_code == 404
+    assert api.get("/equipamentos/999999/movimentacoes").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Task 386: Teste de Performance da Listagem e Filtros Combinados
+# --------------------------------------------------------------------------- #
+def test_performance_da_listagem_com_volume_de_registros(api: TestClient, db_session: Session) -> None:
+    import time
+    from app.models.equipamento import StatusEquipamento
+
+    # Popula 200 equipamentos diretamente para testar performance da query e paginação
+    equipamentos_bulk = [
+        Equipamento(
+            codigo_patrimonio=f"PERF-PAT-{i:04d}",
+            codigo_interno=f"PERF-INT-{i:04d}",
+            nome=f"Equipamento de Teste {i}",
+            categoria="Informatica" if i % 2 == 0 else "Eletronica",
+            status=StatusEquipamento.DISPONIVEL if i % 3 == 0 else StatusEquipamento.EMPRESTADO,
+        )
+        for i in range(1, 201)
+    ]
+    db_session.add_all(equipamentos_bulk)
+    db_session.commit()
+
+    inicio = time.perf_counter()
+    res = api.get(
+        "/equipamentos",
+        params={
+            "categoria": "Informatica",
+            "status": "DISPONIVEL",
+            "pagina": 1,
+            "tamanho_pagina": 20,
+            "ordenar_por": "codigo_patrimonio",
+        },
+    )
+    duracao_ms = (time.perf_counter() - inicio) * 1000
+
+    assert res.status_code == 200
+    dados = res.json()
+    assert dados["total"] > 0
+    assert len(dados["items"]) <= 20
+    # O tempo de resposta deve ser < 200ms
+    assert duracao_ms < 200.0, f"Tempo de resposta excedeu o limite: {duracao_ms:.2f}ms"
+
+
+# --------------------------------------------------------------------------- #
+# Task 357: Testes de Constraints de Domínio
+# --------------------------------------------------------------------------- #
+def test_constraint_patrimonio_duplicado_bloqueado(api: TestClient) -> None:
+    api.post(
+        "/equipamentos",
+        json=dados_equipamento(codigo_patrimonio="PAT-UNICO-100", codigo_interno="INT-UNICO-100"),
+    )
+    res_dup = api.post(
+        "/equipamentos",
+        json=dados_equipamento(codigo_patrimonio="PAT-UNICO-100", codigo_interno="INT-OUTRO-200"),
+    )
+    assert res_dup.status_code == 409
+
+
+def test_constraint_item_sem_codigo_obrigatorio_retorna_422(api: TestClient) -> None:
+    # Sem codigo_patrimonio
+    res1 = api.post("/equipamentos", json={"nome": "Monitor", "codigo_interno": "INT-01"})
+    assert res1.status_code == 422
+
+    # Sem codigo_interno
+    res2 = api.post("/equipamentos", json={"nome": "Monitor", "codigo_patrimonio": "PAT-01"})
+    assert res2.status_code == 422
+
+
