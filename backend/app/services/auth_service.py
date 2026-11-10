@@ -69,7 +69,7 @@ class AuthService:
             raise AuthenticationError(CREDENCIAIS_INVALIDAS)
 
         if not usuario.ativo:
-            raise AuthenticationError("Utilizador inativo.")
+            raise AuthenticationError(CREDENCIAIS_INVALIDAS)
 
         with transaction(self.db):
             usuario.tentativas_falhas = 0
@@ -121,7 +121,7 @@ class AuthService:
         with transaction(self.db):
             self.tokens.revoke_access(access_payload["jti"], expira_em)
 
-            if todas_sessoes:
+            if todas_sessoes or refresh_token is None:
                 self.tokens.revoke_all_refresh(usuario.id)
             elif refresh_token:
                 try:

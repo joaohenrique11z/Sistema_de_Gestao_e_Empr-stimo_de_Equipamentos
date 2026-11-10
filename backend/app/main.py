@@ -10,7 +10,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.logging_config import RequestLoggingMiddleware, configure_logging
 from app.middlewares import AuthMiddleware
-from app.routers import auth, equipamentos, responsaveis
+from app.routers import auth, dashboard, emprestimos, equipamentos, importacao, responsaveis
 from app.seed import bootstrap_admin
 
 configure_logging()
@@ -43,7 +43,7 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,6 +54,9 @@ app.add_middleware(RequestLoggingMiddleware)
 app.include_router(auth.router)
 app.include_router(responsaveis.router)
 app.include_router(equipamentos.router)
+app.include_router(importacao.router)
+app.include_router(emprestimos.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health", tags=["Health"])

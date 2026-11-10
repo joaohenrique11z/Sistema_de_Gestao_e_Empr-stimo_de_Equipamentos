@@ -133,3 +133,73 @@ def test_impede_remocao_de_responsavel_com_equipamento_vinculado(api: TestClient
     res_del = api.delete(f"/responsaveis/{resp['id']}")
     assert res_del.status_code == 409
     assert "equipamentos vinculados" in res_del.json()["detail"].lower()
+
+
+def test_desativacao_e_reativacao_de_responsavel(api: TestClient) -> None:
+    resp = api.post("/responsaveis", json=dados_responsavel(ativo=True)).json()
+    resp_id = resp["id"]
+    assert resp["ativo"] is True
+
+    # Desativação via PUT
+    res_desativar = api.put(f"/responsaveis/{resp_id}", json={"ativo": False})
+    assert res_desativar.status_code == 200
+    assert res_desativar.json()["ativo"] is False
+
+    # Reativação via PUT
+    res_reativar = api.put(f"/responsaveis/{resp_id}", json={"ativo": True})
+    assert res_reativar.status_code == 200
+    assert res_reativar.json()["ativo"] is True
+
+
+def test_conflito_409_na_edicao_de_responsavel(api: TestClient) -> None:
+    cpf_1 = gerar_cpf()
+    cpf_2 = gerar_cpf()
+    r1 = api.post("/responsaveis", json=dados_responsavel(cpf=cpf_1, email="resp1@ifpe.edu.br")).json()
+    r2 = api.post("/responsaveis", json=dados_responsavel(cpf=cpf_2, email="resp2@ifpe.edu.br")).json()
+
+    # Tentativa de alterar o email de r2 para o email de r1 deve retornar 409
+    res_conflito = api.put(f"/responsaveis/{r2['id']}", json={"email": "resp1@ifpe.edu.br"})
+    assert res_conflito.status_code == 409
+    assert res_conflito.json()["codigo"] == "conflito"
+
+
+def test_validacao_422_cpf_invalido(api: TestClient) -> None:
+    # CPF com dígitos verificadores errados
+    payload = dados_responsavel(cpf="12345678900")
+    res = api.post("/responsaveis", json=payload)
+    assert res.status_code == 422
+    assert "cpf" in res.text.lower()
+
+
+def test_erros_404_responsavel_inexistente(api: TestClient) -> None:
+    res_get = api.get("/responsaveis/999999")
+    assert res_get.status_code == 404
+
+    res_put = api.put("/responsaveis/999999", json={"nome": "Inexistente"})
+    assert res_put.status_code == 404
+
+    res_del = api.delete("/responsaveis/999999")
+    assert res_del.status_code == 404
+
+
+def test_busca_com_letras_e_numeros_nao_vaza_cpf_bug_372(api: TestClient) -> None:
+    # Responsável cujo CPF contém '01'
+    # Geramos um responsável com matrícula específica e outro com CPF contendo dígitos
+    r1 = api.post(
+        "/responsaveis",
+        json=dados_responsavel(
+            nome="Servidor Teste",
+            email="servidor.teste@ifpe.edu.br",
+            matricula="MAT9999",
+        ),
+    ).json()
+
+    # Busca por termo contendo letras e números como 'MAT9999' deve achar r1
+    res = api.get("/responsaveis", params={"q": "MAT9999"}).json()
+    assert res["total"] == 1
+    assert res["items"][0]["id"] == r1["id"]
+
+    # Busca por 'MAT00' (não existente) não deve retornar ninguém
+    res_vazia = api.get("/responsaveis", params={"q": "MAT00"}).json()
+    assert res_vazia["total"] == 0
+

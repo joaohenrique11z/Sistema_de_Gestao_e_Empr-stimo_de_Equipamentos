@@ -17,3 +17,6 @@ email-validator==2.3.0
 
 # Rate limiting
 slowapi==0.1.10
+
+# Upload de arquivos (importação de planilhas)
+python-multipart>=0.0.20
